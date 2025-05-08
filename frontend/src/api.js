@@ -27,14 +27,14 @@ export const getContainers = async (token) => {
   return res.json();
 };
 
-export const createContainer = async (token, name, image, command, env, ports) => {
+export const createContainer = async (token, name, image, command, env, ports, network) => {
   const res = await fetch(`${API_URL}/containers`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ name, image, command, env, ports }),
+    body: JSON.stringify({ name, image, command, env, ports, network }),
   });
   return res.json();
 };

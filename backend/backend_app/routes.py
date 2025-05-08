@@ -39,17 +39,55 @@ def register_routes(app):
             try:
                 docker_container = client.containers.get(c.docker_id)
                 status = docker_container.status
+
+                raw_ports = docker_container.attrs['NetworkSettings']['Ports']
+                ports = {}
+                if raw_ports:
+                    for container_port, bindings in raw_ports.items():
+                        if bindings:
+                            ports[container_port] = bindings[0].get("HostPort", "?")
+                        else:
+                            ports[container_port] = None
+
+                network_settings = docker_container.attrs['NetworkSettings']['Networks']
+                network = list(network_settings.keys())[0] if network_settings else "desconocida"
+
             except docker.errors.NotFound:
                 status = "not found"
+                ports = {}
+                network = "desconocida"
+
             container_list.append({
                 'id': c.id,
                 'name': c.name,
                 'image': c.image,
                 'docker_id': c.docker_id,
-                'status': status
+                'status': status,
+                'ports': ports,
+                'network': network
             })
 
         return jsonify(container_list)
+
+    @app.route('/api/networks', methods=['POST'])
+    @jwt_required()
+    def create_network():
+        data = request.json
+        name = data.get("name")
+        if not name:
+            return jsonify({"message": "Falta el nombre de la red"}), 400
+        try:
+            client.networks.create(name)
+            return jsonify({"message": f"Red '{name}' creada correctamente"})
+        except docker.errors.APIError as e:
+            return jsonify({"message": f"Error al crear red: {str(e)}"}), 500
+
+    @app.route('/api/networks', methods=['GET'])
+    @jwt_required()
+    def list_networks():
+        networks = client.networks.list()
+        result = [{"name": n.name, "id": n.id} for n in networks]
+        return jsonify(result)
 
     @app.route('/api/containers', methods=['POST'])
     @jwt_required()
@@ -58,12 +96,11 @@ def register_routes(app):
         data = request.json
         name = data.get("name")
         image = data.get("image")
-        command = data.get("command")
-        if command == "":
-            command = None
+        command = data.get("command") or None
         env = data.get("env") or {}
         raw_ports = data.get("ports") or {}
         ports = {str(k): v for k, v in raw_ports.items()}
+        network = data.get("network", "dockernest-net")
 
         if not name or not image:
             return jsonify({"message": "Faltan campos"}), 400
@@ -73,7 +110,7 @@ def register_routes(app):
                 image=image,
                 name=f"{name}-{user_id}",
                 command=command,
-                network="dockernest-net",
+                network=network,
                 environment=env,
                 ports=ports,
                 detach=True,
@@ -94,7 +131,7 @@ def register_routes(app):
                 "name": container.name,
                 "image": container.image,
                 "docker_id": container.docker_id,
-                 "docker_name": docker_container.name
+                "docker_name": docker_container.name
             })
 
         except docker.errors.APIError as e:
@@ -187,22 +224,20 @@ def register_routes(app):
             docker_container = client.containers.get(container.docker_id)
             stats = docker_container.stats(stream=False)
 
-            # CPU
             cpu_total = stats['cpu_stats']['cpu_usage']['total_usage']
             cpu_system = stats['cpu_stats']['system_cpu_usage']
             cpu_percent = 0.0
             if cpu_system > 0.0:
                 cpu_percent = (cpu_total / cpu_system) * 100.0
 
-            # Memoria
             mem_usage = stats['memory_stats']['usage']
             mem_limit = stats['memory_stats'].get('limit', 1)
             mem_percent = (mem_usage / mem_limit) * 100.0
 
             return jsonify({
                 'cpu_percent': round(cpu_percent, 2),
-                'mem_usage': round(mem_usage / (1024 ** 2), 2),  # MB
-                'mem_limit': round(mem_limit / (1024 ** 2), 2),  # MB
+                'mem_usage': round(mem_usage / (1024 ** 2), 2),
+                'mem_limit': round(mem_limit / (1024 ** 2), 2),
                 'mem_percent': round(mem_percent, 2)
             })
 
@@ -210,4 +245,3 @@ def register_routes(app):
             return jsonify({'message': 'Contenedor no existe en Docker'}), 404
         except Exception as e:
             return jsonify({'message': f'Error al obtener estadísticas: {str(e)}'}), 500
-

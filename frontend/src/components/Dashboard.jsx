@@ -83,6 +83,35 @@ export default function Dashboard({ token, onLogout }) {
   const [notification, setNotification] = useState("");
   const [notifType, setNotifType] = useState("success");
   const [stats, setStats] = useState({});
+  const [networks, setNetworks] = useState([]);
+  const [newNetwork, setNewNetwork] = useState("");
+  const [selectedNetwork, setSelectedNetwork] = useState("dockernest-net");
+
+ const fetchNetworks = async () => {
+  const res = await fetch("http://localhost:5000/api/networks", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  if (Array.isArray(data)) {
+    setNetworks(data.map(n => n.name));
+  }
+};
+
+const handleCreateNetwork = async () => {
+  if (!newNetwork) return;
+  const res = await fetch("http://localhost:5000/api/networks", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ name: newNetwork })
+  });
+  const data = await res.json();
+  showNotif(data.message);
+  setNewNetwork("");
+  fetchNetworks();
+};
 
   const showNotif = (msg, type = "success") => {
     setNotification(msg);
@@ -173,7 +202,7 @@ export default function Dashboard({ token, onLogout }) {
       loadContainers();
       return;
     }
-    const res = await createContainer(token, name, image, command, envObject, ports);
+    const res = await createContainer(token, name, image, command, envObject, ports, selectedNetwork);
     if (res.id) {
       showNotif("Contenedor creado con éxito");
       setName("");
@@ -230,7 +259,10 @@ export default function Dashboard({ token, onLogout }) {
 
   const addEnvRow = () => setEnvVars([...envVars, { key: "", value: "" }]);
 
-  useEffect(() => { loadContainers(); }, []);
+  useEffect(() => {
+  loadContainers();
+  fetchNetworks();
+}, []);
 
   return (
     <div className="container">
@@ -242,33 +274,50 @@ export default function Dashboard({ token, onLogout }) {
 />
       {error && <div className="alert">{error}</div>}
       <ul>
-        {containers.map((c) => (
-          <li key={c.id} className="container-card">
-            <strong>{c.name}</strong> ({c.image})<br />
-            Estado: <em>{c.status}</em><br />
-            <button onClick={() => handleRestart(c.id)}>Reiniciar</button>
-            <button onClick={() => handleStart(c.id)} className="success">Iniciar</button>
-            <button onClick={() => handleStop(c.id)} className="danger">Detener</button>
-            <button onClick={() => handleDelete(c.id)} className="danger">Eliminar</button>
-            <button onClick={() => handleGetLogs(c.id)}>Ver logs</button>
-            <button onClick={() => handleGetStats(c.id)}>Ver uso</button>
-            {selectedContainer === c.id && (
-              <div style={{ maxHeight: '200px', overflowY: 'auto', background: '#f4f4f4', padding: '10px', marginTop: '10px' }}>
-                <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>{logs}</pre>
-              </div>
-            )}
-            {stats[c.id] && (
-              <div className="stats" style={{ marginTop: '10px' }}>
-                <h5>Estadísticas:</h5>
-                <p>CPU: {stats[c.id].cpu_percent || stats[c.id].cpu?.percent}%</p>
-                <p>Memoria: {stats[c.id].memory_usage} / {stats[c.id].memory_limit}</p>
-                {stats[c.id].network && (
-                  <p>Red: RX {stats[c.id].network.rx_bytes} | TX {stats[c.id].network.tx_bytes}</p>
-                )}
-              </div>
-            )}
-          </li>
-        ))}
+       {containers.map((c) => {
+  const portEntries = Object.entries(c.ports || {});
+  const hasPorts = portEntries.length > 0;
+  const firstPort = hasPorts ? portEntries[0][1] : null;
+  const containerPort = hasPorts ? portEntries[0][0] : null;
+  const accessUrl = firstPort ? `http://localhost:${firstPort}` : null;
+
+  return (
+    <li key={c.id} className="container-card">
+      <strong>{c.name}</strong> ({c.image})<br />
+      Estado: <em>{c.status}</em><br />
+      <p>Red: {c.network}</p>
+      {hasPorts && (
+        <p>Puertos: {portEntries.map(([cPort, hPort]) => `${hPort} ➝ ${cPort}`).join(', ')}</p>
+      )}
+      {accessUrl && (
+        <button
+          onClick={() => window.open(accessUrl, '_blank')}
+          className="success"
+        >
+          Abrir en navegador
+        </button>
+      )}
+      <button onClick={() => handleRestart(c.id)}>Reiniciar</button>
+      <button onClick={() => handleStart(c.id)} className="success">Iniciar</button>
+      <button onClick={() => handleStop(c.id)} className="danger">Detener</button>
+      <button onClick={() => handleDelete(c.id)} className="danger">Eliminar</button>
+      <button onClick={() => handleGetLogs(c.id)}>Ver logs</button>
+      <button onClick={() => handleGetStats(c.id)}>Ver uso</button>
+      {selectedContainer === c.id && (
+        <div style={{ maxHeight: '200px', overflowY: 'auto', background: '#f4f4f4', padding: '10px', marginTop: '10px' }}>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>{logs}</pre>
+        </div>
+      )}
+      {stats[c.id] && (
+        <div className="stats" style={{ marginTop: '10px' }}>
+          <h5>Estadísticas:</h5>
+          <p>CPU: {stats[c.id].cpu_percent || stats[c.id].cpu?.percent}%</p>
+          <p>Memoria: {stats[c.id].memory_usage} / {stats[c.id].memory_limit}</p>
+        </div>
+      )}
+    </li>
+  );
+})}
       </ul>
       <hr />
       <h3>Crear nuevo contenedor</h3>
@@ -294,6 +343,24 @@ export default function Dashboard({ token, onLogout }) {
       <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder='Comando (opcional)' />
       <input value={hostPort} onChange={(e) => setHostPort(e.target.value)} placeholder="Puerto en el host (ej: 8080)" />
       <input value={containerPort} onChange={(e) => setContainerPort(e.target.value)} placeholder="Puerto en el contenedor (ej: 80)" />
+      <h4>Red Docker</h4>
+<select value={selectedNetwork} onChange={(e) => setSelectedNetwork(e.target.value)}>
+  {networks.map((net) => (
+    <option key={net} value={net}>{net}</option>
+  ))}
+</select>
+<div style={{ marginTop: '10px' }}>
+  <input
+    type="text"
+    value={newNetwork}
+    onChange={(e) => setNewNetwork(e.target.value)}
+    placeholder="Nombre de nueva red"
+    style={{ marginRight: '10px' }}
+  />
+  <button onClick={handleCreateNetwork} className="success">Crear red</button>
+</div>
+
+
       <h4>Variables de entorno</h4>
       {envVars.map((pair, idx) => (
         <div key={idx} style={{ display: "flex", gap: "10px", marginBottom: "8px" }}>
