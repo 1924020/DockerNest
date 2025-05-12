@@ -100,6 +100,7 @@ def register_routes(app):
         env = data.get("env") or {}
         raw_ports = data.get("ports") or {}
         ports = {str(k): v for k, v in raw_ports.items()}
+        volumes = data.get("volumes") or {}
         network = data.get("network", "dockernest-net")
 
         if not name or not image:
@@ -113,6 +114,7 @@ def register_routes(app):
                 network=network,
                 environment=env,
                 ports=ports,
+                volumes=volumes,
                 detach=True,
                 labels={"user_id": str(user_id)}
             )

@@ -86,6 +86,7 @@ export default function Dashboard({ token, onLogout }) {
   const [networks, setNetworks] = useState([]);
   const [newNetwork, setNewNetwork] = useState("");
   const [selectedNetwork, setSelectedNetwork] = useState("dockernest-net");
+  const [volumes, setVolumes] = useState([{ hostPath: "", containerPath: ""}]);
 
  const fetchNetworks = async () => {
   const res = await fetch("http://localhost:5000/api/networks", {
@@ -163,6 +164,12 @@ const handleCreateNetwork = async () => {
       showNotif("Por favor, rellena los campos de nombre e imagen.", "error");
       return;
     }
+    const volumeMap = {};
+volumes.forEach(({ hostPath, containerPath }) => {
+  if (hostPath && containerPath) {
+    volumeMap[hostPath] = { bind: containerPath, mode: "rw" };
+  }
+});
     const envObject = {};
     envVars.forEach((pair) => {
       if (pair.key && pair.value) envObject[pair.key] = pair.value;
@@ -202,7 +209,7 @@ const handleCreateNetwork = async () => {
       loadContainers();
       return;
     }
-    const res = await createContainer(token, name, image, command, envObject, ports, selectedNetwork);
+    const res = await createContainer(token, name, image, command, envObject, ports, volumeMap, selectedNetwork);
     if (res.id) {
       showNotif("Contenedor creado con éxito");
       setName("");
@@ -370,6 +377,37 @@ const handleCreateNetwork = async () => {
       ))}
       <button onClick={addEnvRow} className="success">Añadir variable</button>
       <br /><br />
+      
+      <h4>Volúmenes (host ➝ contenedor)</h4>
+{volumes.map((vol, idx) => (
+  <div key={idx} style={{ display: "flex", gap: "10px", marginBottom: "8px" }}>
+    <input
+      placeholder="Ruta en el host"
+      value={vol.hostPath}
+      onChange={(e) => {
+        const updated = [...volumes];
+        updated[idx].hostPath = e.target.value;
+        setVolumes(updated);
+      }}
+    />
+    <input
+      placeholder="Ruta en el contenedor"
+      value={vol.containerPath}
+      onChange={(e) => {
+        const updated = [...volumes];
+        updated[idx].containerPath = e.target.value;
+        setVolumes(updated);
+      }}
+    />
+  </div>
+))}
+<button
+  onClick={() => setVolumes([...volumes, { hostPath: "", containerPath: "" }])}
+  className="success"
+>
+  Añadir volumen
+</button>
+      
       <button onClick={handleCreate} className="success">Crear contenedor</button>
       <hr />
       <button onClick={onLogout} className="danger">Cerrar sesión</button>
