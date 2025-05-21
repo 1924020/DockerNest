@@ -292,6 +292,8 @@ volumes.forEach(({ hostPath, containerPath }) => {
     <li key={c.id} className="container-card">
       <strong>{c.name}</strong> ({c.image})<br />
       Estado: <em>{c.status}</em><br />
+      <br />
+      Usuario: <em>{c.usuario}</em><br />
       <p>Red: {c.network}</p>
       {hasPorts && (
         <p>Puertos: {portEntries.map(([cPort, hPort]) => `${hPort} ➝ ${cPort}`).join(', ')}</p>

@@ -32,14 +32,17 @@ def register_routes(app):
     @jwt_required()
     def get_containers():
         user_id = int(get_jwt_identity())
-        containers = Container.query.filter_by(user_id=user_id).all()
+        user = User.query.get(user_id)
+        if user.username == "admin":
+            containers = Container.query.all()
+        else:
+            containers = Container.query.filter_by(user_id=user_id).all()
 
         container_list = []
         for c in containers:
             try:
                 docker_container = client.containers.get(c.docker_id)
                 status = docker_container.status
-
                 raw_ports = docker_container.attrs['NetworkSettings']['Ports']
                 ports = {}
                 if raw_ports:
@@ -51,13 +54,17 @@ def register_routes(app):
 
                 network_settings = docker_container.attrs['NetworkSettings']['Networks']
                 network = list(network_settings.keys())[0] if network_settings else "desconocida"
+                usuario = User.query.filter_by(id=c.user_id).first()
 
             except docker.errors.NotFound:
                 status = "not found"
                 ports = {}
                 network = "desconocida"
+                usuario = User.query.filter_by(id=c.user_id).first()
 
             container_list.append({
+                'user_id': c.user_id,
+                'usuario': usuario.username if usuario else None,
                 'id': c.id,
                 'name': c.name,
                 'image': c.image,
