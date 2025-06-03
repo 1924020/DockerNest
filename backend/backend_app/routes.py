@@ -55,7 +55,6 @@ def register_routes(app):
                 network_settings = docker_container.attrs['NetworkSettings']['Networks']
                 network = list(network_settings.keys())[0] if network_settings else "desconocida"
                 usuario = User.query.filter_by(id=c.user_id).first()
-
             except docker.errors.NotFound:
                 status = "not found"
                 ports = {}
@@ -73,7 +72,6 @@ def register_routes(app):
                 'ports': ports,
                 'network': network
             })
-
         return jsonify(container_list)
 
     @app.route('/api/networks', methods=['POST'])
@@ -100,6 +98,7 @@ def register_routes(app):
     @jwt_required()
     def create_container():
         user_id = int(get_jwt_identity())
+        user = User.query.get(user_id)
         data = request.json
         name = data.get("name")
         image = data.get("image")
@@ -142,26 +141,30 @@ def register_routes(app):
                 "docker_id": container.docker_id,
                 "docker_name": docker_container.name
             })
-
         except docker.errors.APIError as e:
             return jsonify({"message": f"Error de Docker: {str(e)}"}), 500
+
+    # --- FUNCIONES DE ADMIN Y USUARIO ---
+    def get_target_container(container_id, current_user):
+        if current_user.username == "admin":
+            return Container.query.filter_by(id=container_id).first()
+        else:
+            return Container.query.filter_by(id=container_id, user_id=current_user.id).first()
 
     @app.route('/api/containers/<int:container_id>', methods=['DELETE'])
     @jwt_required()
     def delete_container(container_id):
         user_id = int(get_jwt_identity())
-        container = Container.query.filter_by(id=container_id, user_id=user_id).first()
-
+        user = User.query.get(user_id)
+        container = get_target_container(container_id, user)
         if not container:
             return jsonify({'message': 'Contenedor no encontrado'}), 404
-
         try:
             docker_container = client.containers.get(container.docker_id)
             docker_container.stop()
             docker_container.remove()
         except docker.errors.NotFound:
             pass
-
         db.session.delete(container)
         db.session.commit()
         return jsonify({'message': 'Contenedor eliminado'})
@@ -170,7 +173,8 @@ def register_routes(app):
     @jwt_required()
     def restart_container(container_id):
         user_id = int(get_jwt_identity())
-        container = Container.query.filter_by(id=container_id, user_id=user_id).first()
+        user = User.query.get(user_id)
+        container = get_target_container(container_id, user)
         if not container:
             return jsonify({'message': 'Contenedor no encontrado'}), 404
         try:
@@ -184,7 +188,8 @@ def register_routes(app):
     @jwt_required()
     def get_logs(container_id):
         user_id = int(get_jwt_identity())
-        container = Container.query.filter_by(id=container_id, user_id=user_id).first()
+        user = User.query.get(user_id)
+        container = get_target_container(container_id, user)
         if not container:
             return jsonify({'message': 'Contenedor no encontrado'}), 404
         try:
@@ -198,7 +203,8 @@ def register_routes(app):
     @jwt_required()
     def start_container(container_id):
         user_id = int(get_jwt_identity())
-        container = Container.query.filter_by(id=container_id, user_id=user_id).first()
+        user = User.query.get(user_id)
+        container = get_target_container(container_id, user)
         if not container:
             return jsonify({'message': 'Contenedor no encontrado'}), 404
         try:
@@ -212,7 +218,8 @@ def register_routes(app):
     @jwt_required()
     def stop_container(container_id):
         user_id = int(get_jwt_identity())
-        container = Container.query.filter_by(id=container_id, user_id=user_id).first()
+        user = User.query.get(user_id)
+        container = get_target_container(container_id, user)
         if not container:
             return jsonify({'message': 'Contenedor no encontrado'}), 404
         try:
@@ -226,13 +233,13 @@ def register_routes(app):
     @jwt_required()
     def container_stats(container_id):
         user_id = int(get_jwt_identity())
-        container = Container.query.filter_by(id=container_id, user_id=user_id).first()
+        user = User.query.get(user_id)
+        container = get_target_container(container_id, user)
         if not container:
             return jsonify({'message': 'Contenedor no encontrado'}), 404
         try:
             docker_container = client.containers.get(container.docker_id)
             stats = docker_container.stats(stream=False)
-
             cpu_total = stats['cpu_stats']['cpu_usage']['total_usage']
             cpu_system = stats['cpu_stats']['system_cpu_usage']
             cpu_percent = 0.0
@@ -249,8 +256,8 @@ def register_routes(app):
                 'mem_limit': round(mem_limit / (1024 ** 2), 2),
                 'mem_percent': round(mem_percent, 2)
             })
-
         except docker.errors.NotFound:
             return jsonify({'message': 'Contenedor no existe en Docker'}), 404
         except Exception as e:
             return jsonify({'message': f'Error al obtener estadísticas: {str(e)}'}), 500
+
